@@ -1826,6 +1826,28 @@ class Qwen3TTSTalkerForConditionalGeneration(Qwen3TTSTalkerTextPreTrainedModel, 
         """Enable fast codebook generation (bypasses HuggingFace generate() overhead)."""
         self._use_fast_codebook_gen = enable
 
+    def enable_compile(self, mode: str = "default"):
+        """
+        Enable torch.compile for the talker model.
+
+        This compiles the inner model forward pass for faster execution.
+        Should be called once after model loading.
+
+        Args:
+            mode: torch.compile mode - "default" is recommended for talker
+                  (reduce-overhead causes CUDA graph conflicts with KV-cache)
+
+        Note:
+            Unlike decoder/codebook predictor, talker should use "default" mode
+            because "reduce-overhead" mode's internal CUDA graphs conflict with
+            the external cudagraph_mark_step_begin() calls in stream_generate_pcm.
+        """
+        self.model.forward = torch.compile(
+            self.model.forward,
+            mode=mode,
+            fullgraph=False,  # Allow graph breaks for flexibility
+        )
+
     @can_return_tuple
     def forward(
         self,
@@ -2081,6 +2103,7 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
         compile_mode: str = "reduce-overhead",
         use_fast_codebook: bool = False,  # Disabled: needs debugging, currently slower
         compile_codebook_predictor: bool = True,
+        compile_talker: bool = True,
     ):
         """
         Enable torch.compile and CUDA graphs optimizations for streaming decode.
@@ -2093,9 +2116,11 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
                                   decode_window_frames parameter in stream_generate_pcm)
             use_compile: Apply torch.compile to the decoder
             use_cuda_graphs: Capture CUDA graphs for the fixed window size
-            compile_mode: torch.compile mode ("reduce-overhead" recommended)
+            compile_mode: torch.compile mode ("reduce-overhead" recommended for decoder/codebook)
             use_fast_codebook: Use fast codebook generation (bypasses HF generate() overhead)
             compile_codebook_predictor: Apply torch.compile to codebook predictor (default True)
+            compile_talker: Apply torch.compile to talker model (default True).
+                           Note: Talker always uses "default" mode to avoid CUDA graph conflicts.
 
         Returns:
             self for method chaining
@@ -2119,6 +2144,13 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
         if use_fast_codebook:
             print("[Talker] Enabling fast codebook generation...")
             self.talker.enable_fast_codebook_gen(True)
+
+        # Compile talker model for faster inference
+        # Note: Talker uses "default" mode to avoid CUDA graph conflicts with KV-cache
+        if compile_talker and use_compile:
+            talker_compile_mode = "default"  # reduce-overhead causes CUDA graph conflicts
+            print(f"[Talker] Compiling model with mode={talker_compile_mode}...")
+            self.talker.enable_compile(mode=talker_compile_mode)
 
         # Compile codebook predictor for faster inference
         if compile_codebook_predictor and use_compile:

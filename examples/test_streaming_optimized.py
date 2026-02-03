@@ -4,7 +4,7 @@ Test streaming TTS with torch.compile and CUDA graphs optimizations.
 This script compares:
 1. Standard (non-streaming) generation
 2. Streaming without optimizations
-3. Streaming with torch.compile + CUDA graphs
+3. Streaming with torch.compile + CUDA graphs (decoder, talker, codebook predictor)
 
 Usage:
     cd Qwen3-TTS
@@ -164,17 +164,22 @@ def main():
 
     # ============== Test 3: Streaming WITH optimizations ==============
     print("\n" + "=" * 60)
-    print("Test 3: Streaming WITH decoder torch.compile")
+    print("Test 3: Streaming WITH torch.compile (decoder + talker + codebook)")
     print("=" * 60)
 
     # Enable optimizations - this is the key step!
     # - Decoder torch.compile with reduce-overhead mode (includes CUDA graphs)
+    # - Talker model compilation for faster main generation loop
+    # - Codebook predictor compilation
     print("\nEnabling streaming optimizations...")
     model.enable_streaming_optimizations(
         decode_window_frames=DECODE_WINDOW,
         use_compile=True,
         use_cuda_graphs=False,  # Not needed with reduce-overhead mode
         compile_mode="reduce-overhead",
+        use_fast_codebook=True,
+        compile_codebook_predictor=True,
+        compile_talker=True,
     )
 
     # Warmup run (first run after compile is slower due to compilation)
@@ -255,7 +260,9 @@ def main():
 3. First run after compile is slow (compilation), subsequent runs are fast
 4. For lowest latency: use smaller emit_every_frames (e.g., 4)
 5. For best quality: use larger decode_window_frames (e.g., 80-100)
-6. You can also try compile_mode="max-autotune" for potentially better performance
+6. compile_talker=True compiles the main talker model (uses "default" mode internally)
+7. compile_codebook_predictor=True compiles the codebook predictor
+8. You can also try compile_mode="max-autotune" for potentially better performance
    (but longer initial compilation time)
 """)
 

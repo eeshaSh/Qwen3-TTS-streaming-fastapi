@@ -128,6 +128,7 @@ class Qwen3TTSModel:
         compile_mode: str = "reduce-overhead",
         use_fast_codebook: bool = False,  # Disabled: needs debugging, currently slower
         compile_codebook_predictor: bool = True,
+        compile_talker: bool = True,
     ):
         """
         Enable torch.compile and CUDA graphs optimizations for streaming decode.
@@ -136,6 +137,7 @@ class Qwen3TTSModel:
         1. Compiling the decoder with torch.compile (reduces Python overhead)
         2. Capturing CUDA graphs for fixed-size decode windows (eliminates GPU launch overhead)
         3. Fast codebook generation (bypasses HuggingFace generate() overhead)
+        4. Compiling the talker model (reduces Python overhead in main generation)
 
         Call this method after loading the model, before starting streaming generation.
 
@@ -147,8 +149,10 @@ class Qwen3TTSModel:
             compile_mode: torch.compile mode - "reduce-overhead" (recommended for streaming),
                           "max-autotune", or "default"
             use_fast_codebook: Use fast codebook generation that bypasses HuggingFace's
-                               generate() overhead (default True, ~2x faster per step)
-            compile_codebook_predictor: Apply torch.compile to codebook predictor (experimental)
+                               generate() overhead (default True)
+            compile_codebook_predictor: Apply torch.compile to codebook predictor (default True)
+            compile_talker: Apply torch.compile to talker model (default True).
+                           Note: Talker always uses "default" mode to avoid CUDA graph conflicts.
 
         Returns:
             self for method chaining
@@ -168,6 +172,7 @@ class Qwen3TTSModel:
             compile_mode=compile_mode,
             use_fast_codebook=use_fast_codebook,
             compile_codebook_predictor=compile_codebook_predictor,
+            compile_talker=compile_talker,
         )
         return self
 
