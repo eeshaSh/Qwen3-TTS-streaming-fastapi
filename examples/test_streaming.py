@@ -68,7 +68,7 @@ for chunk, chunk_sr in clone_model.stream_generate_voice_clone(
     voice_clone_prompt=voice_clone_prompt,
     emit_every_frames=8,
     decode_window_frames=80,
-    overlap_samples=512,
+    overlap_samples=0,
 ):
     chunk_count += 1
     chunks.append(chunk)

@@ -50,7 +50,7 @@ def run_streaming_test(
         voice_clone_prompt=voice_clone_prompt,
         emit_every_frames=emit_every_frames,
         decode_window_frames=decode_window_frames,
-        overlap_samples=512,
+        overlap_samples=0,
     ):
         chunk_count += 1
         chunks.append(chunk)
