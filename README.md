@@ -11,17 +11,8 @@ This fork adds real streaming generation directly to the `qwen-tts` package.
 - `stream_generate_pcm()` - real-time PCM audio streaming
 - `stream_generate_voice_clone()` - streaming with voice cloning
 
-## Benchmark (RTX 5090)
-
-### Non-streaming (full inference)
-
-<img width="575" height="136" alt="image" src="https://github.com/user-attachments/assets/e0744b19-d31b-44df-9f61-5be56f29056b" />
-
-
-### Streaming
-
-<img width="738" height="130" alt="image" src="https://github.com/user-attachments/assets/5694aa47-f2db-4b97-ae41-4d834838f8d8" />
-
+## Benchmark (A100, H100)
+Will add my own benchmarking here later.
 
 ## Usage
 
@@ -30,6 +21,16 @@ See examples/
 - [test_optimized_no_streaming.py](https://github.com/dffdeeq/Qwen3-TTS-streaming/blob/main/examples/test_optimized_no_streaming.py)
 
 ## Installation (python 3.12)
+
+### Docker Way
+```bash
+docker build --network=host -t qwen3-tts-server .
+
+# then
+docker run --gpus all -p 8000:8000 -v $(pwd):/app -v $(pwd)/hf_cache:/root/.cache/huggingface --network=host qwen3-tts-server
+```
+It will run on port 8000
+
 
 > Note: torch versions differ between Linux/Windows due to available flash_attn prebuilt wheels.
 
