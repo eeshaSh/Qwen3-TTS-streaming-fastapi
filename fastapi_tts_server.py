@@ -6,18 +6,19 @@ Lightweight FastAPI server exposing an OpenAI-compatible /v1/audio/speech endpoi
 - Loads Qwen3TTSModel at startup for efficiency
 """
 
-import asyncio
-import io
 import os
 import numpy as np
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from qwen_tts import Qwen3TTSModel
 import soundfile as sf
+import time
 import torch
+from typing import Optional
 
 app = FastAPI()
+VOICE_CLONE_CACHE = {}
 
 # Load model at startup (adjust path and params as needed)
 
@@ -35,16 +36,34 @@ model.enable_streaming_optimizations(
     compile_mode="max-autotune-no-cudagraphs",
 )
 
-# Example voice clone prompt (replace with your own logic as needed)
-ref_audio_path = "eesha_voice_cloning.wav"
-ref_text = "Hello. This is an audio recording that's at least 5 seconds long. How are you doing today? Bye!"
-voice_clone_prompt = model.create_voice_clone_prompt(ref_audio=ref_audio_path, ref_text=ref_text)
+DEFAULT_VOICE_CLONE_REF_PATH = "eesha_voice_cloning.wav"
+DEFAULT_TEXT = "Hello. This is an audio recording that's at least 5 seconds long. How are you doing today? Bye!"
+voice_clone_prompt = model.create_voice_clone_prompt(ref_audio=DEFAULT_VOICE_CLONE_REF_PATH, ref_text=DEFAULT_TEXT)
+VOICE_CLONE_CACHE[DEFAULT_VOICE_CLONE_REF_PATH] = voice_clone_prompt
 
 class SpeechRequest(BaseModel):
     input: str
-    # Optionally add model, voice, etc.
+    cloning_audio_filename: Optional[str] = None  # Optional path to .wav file for voice cloning
 
-import time
+class AddVoiceRequest(BaseModel):
+    ref_audio_filename: str
+    ref_text: str
+
+@app.post("/v1/add_voice")
+async def add_voice(body: AddVoiceRequest):
+    """
+    Call this ONLY when you want to change the speaker.
+    The .wav cloning file needs to already exist in /app (mounted to the root directory)
+    """
+    try:
+        filepath = f"/app/{body.ref_audio_filename}"
+        voice_clone_prompt = model.create_voice_clone_prompt(filepath, body.ref_text)
+        VOICE_CLONE_CACHE[filepath] = voice_clone_prompt
+        return {"status": "success", "message": f"Voice changed to {body.ref_audio_filename}"}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/audio/speech")
 async def speech_endpoint(request: Request, body: SpeechRequest):
@@ -52,6 +71,11 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
     language = "English"  # Or parse from request
     print(f"[REQ] /v1/audio/speech called with input: {text[:60]}", flush=True)
     print("[REQ] pid:", os.getpid(), flush=True)
+
+    voice_clone_prompt = VOICE_CLONE_CACHE[DEFAULT_VOICE_CLONE_REF_PATH]
+    if body.cloning_audio_filename:
+       print(f"[INFO] Using cloning audio: {body.cloning_audio_filename}", flush=True)
+       voice_clone_prompt = VOICE_CLONE_CACHE.get(body.cloning_audio_filename, voice_clone_prompt)
 
     def audio_stream():
         start = time.time()
@@ -71,6 +95,7 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
                     ttfb_printed = True
                 # Convert float32 [-1,1] to int16 PCM
                 chunk_int16 = np.clip(chunk, -1.0, 1.0)
+                # Magic number 32767.0 converts audio pcm to int16 range, and astype converts to int16
                 chunk_int16 = (chunk_int16 * 32767.0).astype(np.int16).tobytes()
                 yield chunk_int16
         except Exception as e:
@@ -81,7 +106,6 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
             # silence = (np.zeros(2400, dtype=np.int16)).tobytes()  # 0.1s silence
             # yield silence
         finally:
-            # Ensure generator ends cleanly
             pass
 
     # Set Content-Type to audio/L16 (PCM 16-bit signed)
@@ -89,7 +113,6 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
     # TODO: Eesha - are all these headers really necessary? Can we remove some for simplicity?
     headers={
         "Content-Type": "audio/L16; rate=24000",
-        # "Content-Disposition": "attachment; filename=speech_stream.wav",
         "Transfer-Encoding": "chunked",
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",  # Disable nginx buffering for true streaming
@@ -99,4 +122,4 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
 
 @app.get("/")
 def root():
-    return {"message": "Qwen3-TTS Streaming FastAPI server. POST /v1/audio/speech"}
+    return {"message": "Qwen3-TTS Streaming FastAPI server. POST /v1/audio/speech /v1/add_voice"}

@@ -15,9 +15,6 @@ RUN ln -s /usr/lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/x86_64-linux-gnu/libcu
 # Set up working directory
 WORKDIR /app
 
-# Copy source code
-COPY . /app
-
 # Install torch/torchaudio/torchvision with CUDA 12.6 wheels
 RUN pip install --upgrade pip
 RUN pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu126
@@ -34,6 +31,9 @@ RUN pip install flash-attn --no-build-isolation --no-cache-dir -v
 
 # Install python requirements (from pyproject.toml)
 RUN pip install fastapi uvicorn pydantic soundfile gradio librosa sox onnxruntime einops transformers==4.57.3 accelerate==1.12.0
+
+# Copy source code
+COPY . /app
 
 # Install local package in editable mode
 RUN pip install -e .
