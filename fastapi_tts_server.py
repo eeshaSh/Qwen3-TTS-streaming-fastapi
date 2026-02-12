@@ -184,6 +184,7 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
 
     def audio_stream():
         q = queue.Queue(maxsize=16)
+        stop_event = threading.Event()
 
         def producer():
             ttfb_printed = False
@@ -196,6 +197,12 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
                     decode_window_frames=80,
                     overlap_samples=512,
                 ):
+                    if stop_event.is_set():
+                        print(
+                            f"[CANCEL] PID={os.getpid()} client disconnected, aborting generation: {text[:60]}",
+                            flush=True,
+                        )
+                        break
                     if not ttfb_printed:
                         ttfb = time.time() - start
                         print(
@@ -205,7 +212,14 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
                         ttfb_printed = True
                     chunk_int16 = np.clip(chunk, -1.0, 1.0)
                     chunk_int16 = (chunk_int16 * 32767.0).astype(np.int16).tobytes()
-                    q.put(chunk_int16)
+                    try:
+                        q.put(chunk_int16, timeout=5)
+                    except queue.Full:
+                        print(
+                            f"[CANCEL] PID={os.getpid()} queue full (consumer gone), aborting: {text[:60]}",
+                            flush=True,
+                        )
+                        break
             except Exception as e:
                 print(f"[ERROR] PID={os.getpid()} Exception: {e}", flush=True)
                 import traceback
@@ -217,15 +231,21 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
                     flush=True,
                 )
                 _event_loop.call_soon_threadsafe(generation_semaphore.release)
-                q.put(_SENTINEL)
+                try:
+                    q.put(_SENTINEL, timeout=1)
+                except queue.Full:
+                    pass
 
         threading.Thread(target=producer, daemon=True).start()
 
-        while True:
-            item = q.get()
-            if item is _SENTINEL:
-                break
-            yield item
+        try:
+            while True:
+                item = q.get()
+                if item is _SENTINEL:
+                    break
+                yield item
+        finally:
+            stop_event.set()
 
     headers = {
         "Content-Type": "audio/L16; rate=24000",
