@@ -16,6 +16,8 @@ import asyncio
 import hmac
 import json
 import os
+import queue
+import threading
 import numpy as np
 from fastapi import Depends, FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
@@ -24,6 +26,8 @@ from qwen_tts import Qwen3TTSModel
 import time
 import torch
 from typing import Optional
+
+_SENTINEL = object()
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +175,7 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
         if loaded is not None:
             voice_clone_prompt = loaded
 
+    start = time.time()
     await generation_semaphore.acquire()
     print(
         f"[REQ] /v1/audio/speech PID={os.getpid()} input: {text[:60]}",
@@ -178,33 +183,49 @@ async def speech_endpoint(request: Request, body: SpeechRequest):
     )
 
     def audio_stream():
-        start = time.time()
-        ttfb_printed = False
-        try:
-            for chunk, sr in model.stream_generate_voice_clone(
-                text=text,
-                language=language,
-                voice_clone_prompt=voice_clone_prompt,
-                emit_every_frames=4,
-                decode_window_frames=80,
-                overlap_samples=512,
-            ):
-                if not ttfb_printed:
-                    ttfb = time.time() - start
-                    print(
-                        f"[TTFB] PID={os.getpid()} {ttfb:.3f}s input: {text[:60]}",
-                        flush=True,
-                    )
-                    ttfb_printed = True
-                chunk_int16 = np.clip(chunk, -1.0, 1.0)
-                chunk_int16 = (chunk_int16 * 32767.0).astype(np.int16).tobytes()
-                yield chunk_int16
-        except Exception as e:
-            print(f"[ERROR] PID={os.getpid()} Exception: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
-        finally:
-            _event_loop.call_soon_threadsafe(generation_semaphore.release)
+        q = queue.Queue(maxsize=16)
+
+        def producer():
+            ttfb_printed = False
+            try:
+                for chunk, sr in model.stream_generate_voice_clone(
+                    text=text,
+                    language=language,
+                    voice_clone_prompt=voice_clone_prompt,
+                    emit_every_frames=4,
+                    decode_window_frames=80,
+                    overlap_samples=512,
+                ):
+                    if not ttfb_printed:
+                        ttfb = time.time() - start
+                        print(
+                            f"[TTFB] PID={os.getpid()} {ttfb:.3f}s input: {text[:60]}",
+                            flush=True,
+                        )
+                        ttfb_printed = True
+                    chunk_int16 = np.clip(chunk, -1.0, 1.0)
+                    chunk_int16 = (chunk_int16 * 32767.0).astype(np.int16).tobytes()
+                    q.put(chunk_int16)
+            except Exception as e:
+                print(f"[ERROR] PID={os.getpid()} Exception: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+            finally:
+                gen_time = time.time() - start
+                print(
+                    f"[GEN_DONE] PID={os.getpid()} {gen_time:.3f}s input: {text[:60]}",
+                    flush=True,
+                )
+                _event_loop.call_soon_threadsafe(generation_semaphore.release)
+                q.put(_SENTINEL)
+
+        threading.Thread(target=producer, daemon=True).start()
+
+        while True:
+            item = q.get()
+            if item is _SENTINEL:
+                break
+            yield item
 
     headers = {
         "Content-Type": "audio/L16; rate=24000",
