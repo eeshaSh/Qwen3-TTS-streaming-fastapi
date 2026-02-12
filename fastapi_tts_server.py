@@ -23,6 +23,14 @@ from pydantic import BaseModel
 from qwen_tts import Qwen3TTSModel
 import time
 import torch
+
+try:
+    import flash_attn  # noqa: F401
+    _ATTN_IMPL = "flash_attention_2"
+    print("[INIT] Using flash_attention_2 for attention implementation.", flush=True)
+except ImportError:
+    _ATTN_IMPL = "sdpa"
+    print("[INIT] flash-attn not installed, falling back to SDPA.", flush=True)
 from typing import Optional
 
 
@@ -45,7 +53,7 @@ model = Qwen3TTSModel.from_pretrained(
     "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
     device_map="cuda:0",
     dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
+    attn_implementation=_ATTN_IMPL,
 )
 model.enable_streaming_optimizations(
     decode_window_frames=80,

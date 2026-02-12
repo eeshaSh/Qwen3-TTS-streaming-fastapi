@@ -5,6 +5,7 @@ NUM_WORKERS=${TTS_NUM_WORKERS:-2}
 BASE_PORT=8001
 WORK_DIR="$(pwd)"
 LOCAL_RUN_DIR="${WORK_DIR}/.run"
+export TTS_VOICE_META_DIR="${TTS_VOICE_META_DIR:-${WORK_DIR}/voices}"
 
 echo "[entrypoint_local] Working directory: ${WORK_DIR}"
 echo "[entrypoint_local] Starting with ${NUM_WORKERS} worker(s)..."
@@ -86,7 +87,7 @@ logfile=${LOCAL_RUN_DIR}/logs/supervisord.log
 pidfile=${LOCAL_RUN_DIR}/supervisord.pid
 
 [program:nginx]
-command=nginx -c ${LOCAL_RUN_DIR}/nginx.conf -g "daemon off;"
+command=nginx -e ${LOCAL_RUN_DIR}/logs/nginx_error.log -c ${LOCAL_RUN_DIR}/nginx.conf -g "daemon off;"
 autorestart=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
