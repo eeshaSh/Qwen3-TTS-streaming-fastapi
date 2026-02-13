@@ -76,6 +76,14 @@ stderr_logfile_maxbytes=0
 ${WORKERS}
 EOF
 
+export CUDA_VISIBLE_DEVICES=0
+export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps
+export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log
+
+mkdir -p $CUDA_MPS_PIPE_DIRECTORY $CUDA_MPS_LOG_DIRECTORY
+
+nvidia-cuda-mps-control -d
+
 echo "[entrypoint] Generated nginx config with ${NUM_WORKERS} upstream(s)"
 echo "[entrypoint] Starting supervisord..."
 
