@@ -6,8 +6,9 @@ FROM nvidia/cuda:12.6.2-cudnn-devel-ubuntu22.04
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-venv python3-dev git wget build-essential ffmpeg sox ninja-build && \
-    rm -rf /var/lib/apt/lists/*
+    python3 python3-pip python3-venv python3-dev git wget build-essential ffmpeg sox ninja-build nginx && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -f /etc/nginx/sites-enabled/default
 
 # FIX FOR TRITON/INDUCTOR: Create symlink for libcuda.so
 RUN ln -s /usr/lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/x86_64-linux-gnu/libcuda.so || true
@@ -44,11 +45,23 @@ ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
 RUN chmod +x /tini
 ENTRYPOINT ["/tini", "--"]
 
-# Use supervisor to restart uvicorn if it dies
+# Use supervisor to manage nginx + uvicorn workers
 RUN pip install --no-cache supervisor
 COPY supervisord.conf /etc/supervisord.conf
+
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Create voices directory for cross-worker voice metadata
+RUN mkdir -p /app/voices
+
+# Default env vars
+ENV TTS_NUM_WORKERS=2
+ENV TTS_VOICE_META_DIR=/app/voices
+ENV TTS_API_KEY=""
 
 # Expose port
 EXPOSE 8000
 
-CMD ["supervisord", "-c", "/etc/supervisord.conf"]
+CMD ["/app/entrypoint.sh"]

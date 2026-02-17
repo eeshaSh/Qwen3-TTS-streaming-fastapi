@@ -1,0 +1,26 @@
+events {
+    worker_connections 64;
+}
+
+http {
+    upstream tts_workers {
+        least_conn;
+UPSTREAM_SERVERS
+    }
+
+    server {
+        listen 8000;
+
+        location / {
+            proxy_pass http://tts_workers;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_buffering off;
+            proxy_cache off;
+            chunked_transfer_encoding on;
+            proxy_connect_timeout 10s;
+            proxy_read_timeout 600s;
+            proxy_send_timeout 600s;
+        }
+    }
+}

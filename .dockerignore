@@ -10,7 +10,6 @@ assets/
 examples/
 finetuning/
 from_speech4.pcap
-*.wav
 *.mp3
 *.flac
 *.ogg

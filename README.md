@@ -20,17 +20,54 @@ See examples/
 - [test_streaming_optimized.py](https://github.com/dffdeeq/Qwen3-TTS-streaming/blob/main/examples/test_streaming_optimized.py)
 - [test_optimized_no_streaming.py](https://github.com/dffdeeq/Qwen3-TTS-streaming/blob/main/examples/test_optimized_no_streaming.py)
 
-## Installation (python 3.12)
+## Running the FastAPI Server
 
-### Docker Way
+The server exposes an OpenAI-compatible `POST /v1/audio/speech` endpoint that streams PCM audio. It uses nginx + supervisord to load-balance across multiple uvicorn workers, each with its own model instance.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TTS_NUM_WORKERS` | `2` | Number of uvicorn worker processes |
+| `TTS_VOICE_META_DIR` | `/app/voices` (Docker), `./voices` (local) | Directory for voice metadata JSON files |
+| `TTS_API_KEY` | (empty) | Optional API key for Bearer auth on `/v1/*` endpoints. Unset/empty disables auth. |
+
+### Option A: Docker
+
+Uses `entrypoint.sh`, which writes configs to `/etc/` and assumes the `/app` working directory.
+
 ```bash
 docker build --network=host -t qwen3-tts-server .
-
-# then
 docker run --gpus all -p 8000:8000 -v $(pwd):/app -v $(pwd)/hf_cache:/root/.cache/huggingface --network=host qwen3-tts-server
 ```
-It will run on port 8000
 
+### Option B: Directly on a VM (no Docker, no sudo)
+
+Uses `entrypoint_local.sh`, which generates nginx and supervisord configs in a local `.run/` directory and does not require root.
+
+Prerequisites: `nginx`, `supervisord`, `uvicorn`, and Python dependencies installed.
+
+```bash
+pip install -e .
+TTS_NUM_WORKERS=2 ./entrypoint_local.sh
+```
+
+### Testing
+
+Stream audio and play it locally:
+```bash
+curl -N -s -X POST http://localhost:8000/v1/audio/speech -H "Content-Type: application/json" -d '{"input": "Hello, this is a test."}' | ffplay -nodisp -autoexit -f s16le -ar 24000 -ch_layout mono -
+```
+
+If `TTS_API_KEY` is set, add `-H "Authorization: Bearer <your-key>"`.
+
+Run a concurrency test (default 2 concurrent requests):
+```bash
+./concurrency_test.sh                            # 2 concurrent requests to localhost:8000
+./concurrency_test.sh http://<host>:8000 4       # custom host, 4 requests
+```
+
+## Installation (python 3.12)
 
 > Note: torch versions differ between Linux/Windows due to available flash_attn prebuilt wheels.
 
@@ -41,7 +78,7 @@ It will run on port 8000
 sudo apt install sox libsox-fmt-all
 ```
 
-**Windows:** 
+**Windows:**
 ```bash
 # Download from https://sourceforge.net/projects/sox/ and add to PATH !!
 ```
